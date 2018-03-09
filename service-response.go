@@ -3,12 +3,8 @@ package cas
 import (
 	"encoding/xml"
 	"fmt"
-	"reflect"
 	"strings"
 	"time"
-
-	"github.com/golang/glog"
-	"gopkg.in/yaml.v2"
 )
 
 // AuthenticationError Code values
@@ -39,8 +35,8 @@ func (e AuthenticationError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Code, e.Message)
 }
 
-// AuthenticationResponse captures authenticated user information
-type AuthenticationResponse struct {
+// Authentication captures authenticated user information
+type Authentication struct {
 	User                string         // Users login name
 	ProxyGrantingTicket string         // Proxy Granting Ticket
 	Proxies             []string       // List of proxies
@@ -71,7 +67,7 @@ func (a UserAttributes) Add(name, value string) {
 }
 
 // ParseServiceResponse returns a successful response or an error
-func ParseServiceResponse(data []byte) (*AuthenticationResponse, error) {
+func ParseServiceResponse(data []byte) (*Authentication, error) {
 	var x xmlServiceResponse
 
 	if err := xml.Unmarshal(data, &x); err != nil {
@@ -84,7 +80,7 @@ func ParseServiceResponse(data []byte) (*AuthenticationResponse, error) {
 		return nil, err
 	}
 
-	r := &AuthenticationResponse{
+	r := &Authentication{
 		User:                x.Success.User,
 		ProxyGrantingTicket: x.Success.ProxyGrantingTicket,
 		Attributes:          make(UserAttributes),
@@ -121,57 +117,5 @@ func ParseServiceResponse(data []byte) (*AuthenticationResponse, error) {
 		}
 	}
 
-	for _, ea := range x.Success.ExtraAttributes {
-		addRubycasAttribute(r.Attributes, ea.XMLName.Local, strings.TrimSpace(ea.Value))
-	}
-
 	return r, nil
-}
-
-// addRubycasAttribute handles RubyCAS style additional attributes.
-func addRubycasAttribute(attributes UserAttributes, key, value string) {
-	if !strings.HasPrefix(value, "---") {
-		attributes.Add(key, value)
-		return
-	}
-
-	if value == "--- true" {
-		attributes.Add(key, "true")
-		return
-	}
-
-	if value == "--- false" {
-		attributes.Add(key, "false")
-		return
-	}
-
-	var decoded interface{}
-	if err := yaml.Unmarshal([]byte(value), &decoded); err != nil {
-		attributes.Add(key, err.Error())
-		return
-	}
-
-	switch reflect.TypeOf(decoded).Kind() {
-	case reflect.Slice:
-		s := reflect.ValueOf(decoded)
-
-		for i := 0; i < s.Len(); i++ {
-			e := s.Index(i).Interface()
-
-			switch reflect.TypeOf(e).Kind() {
-			case reflect.String:
-				attributes.Add(key, e.(string))
-			}
-		}
-	case reflect.String:
-		s := reflect.ValueOf(decoded).Interface()
-		attributes.Add(key, s.(string))
-	default:
-		if glog.V(2) {
-			kind := reflect.TypeOf(decoded).Kind()
-			glog.Warningf("cas: service response: unable to parse %v value: %#v (kind: %v)", key, decoded, kind)
-		}
-	}
-
-	return
 }
